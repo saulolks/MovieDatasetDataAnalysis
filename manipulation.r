@@ -1,5 +1,5 @@
 library(rjson)
-movies_root = read.csv("Data/movies_metadata.csv", stringsAsFactors = F)
+movies_root = read.csv("Generated-Data/movies_metadata.csv", stringsAsFactors = F)
 
 # Tratamento da coluna "genre" -------------------------------------------------
 movies = vector()
@@ -82,3 +82,19 @@ write.csv(
   file="Generated-Data/movies_productions.csv",
   row.names = F
 )
+
+movies_root <- movies_root[,-4]
+movies_root <- movies_root[,-12]
+
+
+# Tratamento da coluna "release_date" ------------------------------------------
+library(tidyr)
+library(dplyr)
+
+aux <- movies_root %>% separate(col="release_date", into=c("release_year", "release_month", "release_day"), sep="-")
+write.csv(
+  aux,
+  file="Generated-Data/movies_metadata.csv",
+  row.names = F
+)
+
