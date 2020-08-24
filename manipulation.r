@@ -1,6 +1,7 @@
 library(rjson)
-movies_root = read.csv("Generated-Data/movies_metadata.csv", stringsAsFactors = F)
+movies_root = read.csv("original_data/movies_metadata.csv", stringsAsFactors = F)
 
+movies_root[1:50,]
 # Tratamento da coluna "genre" -------------------------------------------------
 movies = vector()
 genres = vector()
@@ -98,3 +99,47 @@ write.csv(
   row.names = F
 )
 
+# Tratamento de keywords -------------------------------------------------------
+keywords <- read.csv("original_data/keywords.csv", stringsAsFactors = F)
+
+movies <- vector()
+words <- vector()
+
+for(row in 1:nrow(keywords)){
+  movie_id = keywords$id[row]
+  data = fromJSON(keywords$keywords[row])
+  
+  movies <- c(movies, rep(movie_id, length(data)))
+  for(item in data){
+    words <- c(words, item$name)
+  }
+}
+
+key_data <- data.frame("movie_id"=movies, "keyword"=words)
+write.csv(
+  key_data,
+  file="generated_data/keywords.csv",
+  row.names = F
+)
+
+# Tratamento de production countries
+movies_root = read.csv("generated_data/movies_metadata.csv", stringsAsFactors = F)
+for(row in 1:nrow(movies_root)){
+  data = movies_root$production_countries[row]
+  if(data != ""){
+    countries = fromJSON(data)
+
+    for(country in countries){
+      movies_root$production_countries[row] <- country$name
+      break
+    }
+  }else{
+    movies_root$belongs_to_collection[row] <- NA
+  }
+}
+
+write.csv(
+  movies_root,
+  file="generated_data/movies_metadata.csv",
+  row.names = F
+)

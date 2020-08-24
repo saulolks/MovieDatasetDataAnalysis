@@ -1,0 +1,1094 @@
+---
+title: "Entendendo o Comportamento do Mercado Cinematográfico com Dados"
+author: "Saulo Ferreira"
+date: "23/07/2020"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+---
+
+# {.tabset}
+
+## Introdução
+
+### Propósito
+O cinema é um dos mercados de entretenimento que mais faturam no mundo há décadas e resiste forte em um cenário onde a concorrência sempre se mostrou mais acessível e barata, como televisão, mídias físicas e streaming. Além disso, os filmes costumam ser reflexos de uma diversidade de culturas ao redor do mundo, trazendo todos os seus costumes e práticas para outros pontos do planeta. A produção cinematográfica como expressão artística é uma forma fácil tanto de repassar quanto de compreender questões sensíveis na sociedade, como conceitos religiosos, dificuldades de um povo, críticas políticas e movimentos sociais.
+
+Neste ponto, é importante entender de qual maneira isso é realizado e como isso é recebido pelo público. Por exemplo, o gênero mais assistido pelo público, o mais bem avaliado, a arrecadação média de filmes melhor avaliados, o mês onde há mais lançamentos e que tipos de gêneros os filmes de cada língua estrangeira busca explorar. 
+
+### Relevância
+Acerca desses dados, pode-se avaliar como funciona o mercado cinematográfico global, o que é interessante tanto para produtoras que buscam desenvolver suas produções quanto para cineastas que desejam descobrir qual a melhor maneira de passar a sua mensagem.
+
+Tendo em mãos uma quantidade considerável de dados sobre filmes nas últimas décadas, pode-se realizar um tratamento mais eficaz de acordo com cada tipo de informação que se espera extrair deles, pois é de se esperar que nem sempre a formatação dos dados que recebemos é adequada para a resolução do nosso problema.
+
+### Abordagem da Análise
+Para termos uma boa quantidade de dados dentro do contexto do nosso problema, foi selecionado uma base de dados com cerca de 45 mil informações de filmes listados no *Full MovieLens Dataset* até 2017. Neste dataset, há 24 colunas informando título do filme, coleção que o filme pertence, seu custo, gêneros, produtoras envolvidas, língua original, país de origem, ano, arrecadação, número e média de avaliações no TBMDB e IMDB, etc.
+
+Com este dataset em mãos, iremos criar gerar novas tabelas para que possamos separar dados que estão inicialmente amontoados em colunas únicas. Estes dados serão tratados e formatados para melhor entendimento, para que possamos, depois, agrupar dados correlacionados, detectar informações desejadas e gerar gráficos. Com esses gráficos, podemos discutir os resultados e tentar relacioná-los entre si, afinal, o mercado do cinema tem um motor de impulsão próprio, onde filmes aclamados acabam por abrir grande margem para vários outros de sua categoria serem produzidos em larga escala.
+
+Os gráficos, tabelas e relatórios gerados nos darão uma perspectiva mais acertada de como se comporta o mercado cinematográfico ao longo dos anos, como tendências se criam e como são recebidos pela crítica e pelo público diferentes tipos de filmes, de diferentes países com suas pluralidades de gêneros.
+
+
+
+## Pacotes Requeridos
+
+|Pacote|Descrição|
+|------|---------|
+|`library(rjson)`|Manipulação de dados JSON|
+|`library(dplyr)`|Manipulação de tabelas, como filtragem, seleção e agrupamento|
+|`library(tidyr)`|Manipulação de tabelas, como separação e junção de colunas|
+|`library(ggplot2)`|Geração de gráficos através de dados|
+|`library(scales)`|Manipulação de datas para visualização em gráficos|
+|`library(tm)`|Mineração, tratamento e análise de texto|
+|`library(wordcloud)`|Geração de nuvens de palavras|
+|`library(DT)`|Geração de tabelas interativas|
+|`library(ggrepel)`|Personalização de legenda dos gráficos|
+
+```{r echo=T, warning=F, error=F, message=F}
+library(rjson)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(tm)
+library(wordcloud)
+library(kableExtra)
+library(DT)
+library(ggrepel)
+```
+
+
+## Preparação dos Dados {.tabset}
+```{r echo=T}
+movies_root <- read.csv("original_data/movies_metadata.csv", stringsAsFactors = F)
+```
+
+### O Dataset
+O dataset utilizado foi o [The Movies Dataset](https://www.kaggle.com/rounakbanik/the-movies-dataset), uma base de dados baixada do Kaggle
+com 45,463 filmes, cada um com 24 colunas. O dataset é uma versão da [MovieLens Dataset](https://grouplens.org/datasets/movielens/),
+com filmes lançados até julho de 2017. Por este motivo, muitas das nossas análises
+considerarão os filmes até 2016, para se ter uma noção mais completa dos dados
+do ano.
+
+As colunas do dataset são:
+
+* adult: booleano
+* belongs_to_collection: caractere
+* budget: numérico
+* genres: caractere
+* homepage: caractere
+* id: numérico
+* imdb_id: numérico
+* original_language: caractere
+* original_title: caractere
+* overview: caractere
+* popularity: numérico
+* poster_path: caractere
+* production_companies: caractere
+* production_countries: caractere
+* release_date: caractere
+* revenue: numérico
+* runtime: numérico
+* spoken_languages: caractere
+* status: caractere
+* tagline: caractere
+* title: caractere
+* video: booleano
+* vote_average: numérico
+* vote_count: numérico
+
+Muitas destas colunas não são utilizadas na análise. Portanto, a descrição das
+mais importantes estará no final deste tópico.
+
+### Tratamentos realizados {.tabset}
+#### **Formato inicial**
+Inicialmente, foi notado que algumas colunas estavam com valores em formato JSON,
+portanto, utilizou-se o pacote *rjson* para tratar esses dados.
+
+```{r}
+sample <- movies_root %>% select(belongs_to_collection, production_companies, genres)
+knitr::kable(head(sample), format = "html") %>% kable_styling()
+```
+
+```{r echo=T}
+indexes_to_remove = which(movies_root$adult != "False" & movies_root$adult != "True")
+movies_root <- movies_root[-indexes_to_remove,]
+```
+
+#### **Tratamento de coleção**
+Primeiramente, a coluna "belongs_to_collection" foi formatada, extraindo-se o nome
+da coleção que o filme pertencia.
+
+```{r}
+for(row in 1:nrow(movies_root)){
+  data = movies_root$belongs_to_collection[row]
+  if(data != ""){
+    collection = fromJSON(data)
+    movies_root$belongs_to_collection[row] <- collection$name
+  }else{
+    movies_root$belongs_to_collection[row] <- NA
+  }
+}
+
+sample <- movies_root %>% select(belongs_to_collection)
+knitr::kable(head(sample), format = "html") %>% kable_styling()
+```
+
+#### **Tratamento de gênero**
+Uma vez com as coleções já tratadas, o próximo campo com este mesmo problema é o
+"genres" que armazena o gênero do filme em questão. Portanto, foi criado um novo
+dataframe com o id do filme e o gênero. Como um filme pode ter vários gêneros, a
+relação entre os dois é *1-n*.
+
+```{r}
+movies = vector()
+genres = vector()
+
+for(row in 1:nrow(movies_root)){
+  movie_id = movies_root$id[row]
+  data = fromJSON(movies_root$genres[row])
+  
+  movies <- c(movies, rep(movie_id, length(data)))
+  for(item in data){
+    genres <- c(genres, item$name)
+  }
+}
+
+movie_genre <- data.frame("movie_id"=movies, "genre"=genres)
+knitr::kable(head(movie_genre), format = "html") %>% kable_styling()
+```
+
+#### **Criação de tabela para produtoras**
+O problema se repete para "production_companies", a tabela armazena um array JSON
+em suas colunas que armazena, em cada posição, o id e nome da produtora. Decididimos
+criar uma nova tabela para armazenas essas informações separadamente e outra para
+ligar o id da produtora com o id do filme, uma vez que a relação entre os dois é *n-n*.
+
+Para isso, os valores foram armazenados em vetores diferentes e os duplicados foram
+removidos depois, pois, como pode participar em mais de um filme, as produtoras
+poderiam aparecer em mais de uma linha.
+
+```{r}
+movies = vector()
+production_ids = vector()
+production_names = vector()
+
+for(row in 1:nrow(movies_root)){
+  movie_id = movies_root$id[row]
+  if(movies_root$production_companies[row] != ""){
+    data = fromJSON(movies_root$production_companies[row])
+    
+    movies <- c(movies, rep(movie_id, length(data)))
+    for(item in data){
+      production_ids <- c(production_ids, item$id)
+      production_names <- c(production_names, item$name)
+    }
+  }
+}
+
+production_metadata <- data.frame("id"=production_ids, "name"=production_names, stringsAsFactors = F)
+indexes <- which(duplicated(production_metadata))
+production_metadata <- production_metadata[-indexes,]
+
+movies_productions <- data.frame("movie_id"=movies, "production_id"=production_ids, stringsAsFactors = F)
+
+knitr::kable(head(production_metadata), format = "html") %>% kable_styling()
+```
+
+
+#### **Mapeamento de palavras-chave**
+O processamento se repete para palavras-chave, que formam uma nova tabela contendo
+o id do filme em questão e a palavra-chave relacionada a ele. Em uma relação *1-n*.
+
+```{r echo=T}
+keywords <- read.csv("original_data/keywords.csv", stringsAsFactors = F)
+
+movies <- vector()
+words <- vector()
+
+for(row in 1:nrow(keywords)){
+  movie_id = keywords$id[row]
+  data = fromJSON(keywords$keywords[row])
+  
+  movies <- c(movies, rep(movie_id, length(data)))
+  for(item in data){
+    words <- c(words, item$name)
+  }
+}
+
+key_data <- data.frame("movie_id"=movies, "keyword"=words)
+knitr::kable(head(key_data), format = "html") %>% kable_styling()
+```
+
+#### **Tratamento de data**
+Na questão da data, não há nenhum problema relacionado a JSON. Porém, o formato do
+campo não torna as análises mais práticas, pois, geralmente serão usados filtros
+para ano ou mês de lançamento. Portanto é mais prático para esta análise que os
+valores estejam separados. Originalmente eles são assim:
+
+```{r echo=T}
+sample <- select(movies_root, title, release_date)
+knitr::kable(head(sample), format = "html") %>% kable_styling()
+```
+
+Utilizando a função *separate* da biblioteca *tidyr* é possível dividir os valores
+em três colunas distintas.
+
+```{r echo=T}
+movies_root <- movies_root %>% separate(col="release_date",
+                                        into=c("release_year",
+                                               "release_month",
+                                               "release_day"),
+                                        sep="-")
+
+
+sample <- select(movies_root, title, release_day, release_month, release_year)
+knitr::kable(head(sample), format = "html") %>% kable_styling()
+```
+
+### Visualização dos dados {.tabset}
+Com os dados tratados, podemos conferir como ficaram as tabelas. Como o dataset
+possuía cerca de 24 colunas, só estará mostrando na tabela as mais relevantes.
+
+#### **Tabela principal**
+```{r echo=T}
+sample <- movies_root %>%
+    select(title, belongs_to_collection, release_day, release_month, release_year,
+           revenue, vote_count, vote_average, original_language)
+
+DT::datatable(sample[1:50,])
+```
+
+#### **Tabela de gêneros**
+```{r echo=T}
+DT::datatable(movie_genre[1:50,])
+```
+
+#### **Tabela de produtoras**
+```{r echo=T}
+DT::datatable(production_metadata[1:50,])
+```
+
+#### **Tabela de palavras-chave**
+```{r echo=T}
+DT::datatable(key_data[1:50,])
+```
+
+### Descrição de variáveis {.tabset}
+
+#### **Tabela principal**
+
+|Variável|Tipo|Descrição|
+|--------|----|---------|
+|title|caractere|Nome do filme em inglês|
+|belongs_to_collection|caractere|Coleção de filmes que o filme pertence|
+|release_day|numérico|Dia do lançamento do filme|
+|release_month|numérico|Mês do lançamento do filme|
+|release_year|numérico|Ano do lançamento do filme|
+|revenue|numérico|Bilheteria total do filme (em dólares)|
+|vote_average|numérico|Média das avaliações do filme no TMDB|
+|vote_count|numérico|Quantidade de avaliações do filme no TMDB|
+|original_language|caractere|Língua original do filme|
+
+#### **Tabela de gêneros**
+|Variável|Tipo|Descrição|
+|--------|----|---------|
+|movie_id|numérico|Id do filme|
+|genre|caractere|Gênero do filme|
+
+#### **Tabela de produtoras**
+|Variável|Tipo|Descrição|
+|--------|----|---------|
+|id|numérico|Id da produtora|
+|name|numérico|Nome da produtora|
+
+#### **Tabela de palavras-chave**
+|Variável|Tipo|Descrição|
+|--------|----|---------|
+|movie_id|numérico|Id do filme|
+|keyword|caractere|Palavra-chave associada ao filme|
+
+
+## Análise Exploratória dos Dados {.tabset}
+### Popularidade e alcance {.tabset}
+```{r echo=F}
+movies_root <- read.csv("generated_data/movies_metadata.csv", stringsAsFactors = F)
+```
+#### **A popularização e suas consequências**
+O cinema se tornou um dos maiores mercados no mundo do entretenimento,
+os investimentos são cada vez maiores e os ganhos também acompanham esta crescente.
+O número de filmes produzidos por ano segue em uma ascensão sem previsão de queda.
+A cada ano, mais filmes são produzidos e lançados, abrangendo mais temas e mais públicos.
+
+Neste gráfico abaixo, vemos uma curva sempre ascendente nos filmes lançados a partir
+de 1920 até 2017, com uma grande alta no início do século 21.
+
+```{r  error=F, message=F, warning=F, fig.cap="Quantidade de filmes por ano", fig.align="center"}
+count_per_year <- movies_root %>%
+  group_by(release_year) %>%
+  filter(release_year>1920, release_year<2017) %>%
+  summarise(count=n()) %>%
+  filter(count>20)
+
+ggplot(data = count_per_year, aes(release_year, count)) +
+  geom_point() + ylab("Quantidade de filmes") + xlab("Ano")
+```
+
+Com o grande número de produções ao longo dos anos, é comum que se tenha uma 
+menor rigidez e cuidado com alguns filmes. Não é de completa justiça afirmar que
+a qualidade do cinema caiu ao longo dos anos. Fato é que as produções cinematográficas
+eram centralizadas em grandes produtoras e os filmes recebiam muito mais atenção
+pois o investimento realizado era muito menor, havendo uma certa cautela.
+
+Mas o cinema tornou-se cada vez mais popular e sua popularidade acaba o fazendo 
+buscar mais públicos-alvo com produções de nicho. Com isso, a quantidade de filmes 
+aumenta e, por consequência, muitos com nem tanto cuidado quanto outros. O gráfico 
+abaixo mostra como a média de avaliações cai ao longo dos anos. O que não necessariamente
+representa algo ruim, pois até filmes mal criticados possuem seu público-alvo.
+
+```{r  error=F, message=F, warning=F, fig.cap="Média de avaliação por ano", fig.align="center"}
+average_vote_per_year <- movies_root %>%
+  filter(vote_count > 100, release_year>1920, release_year<2017) %>%
+  group_by(release_year) %>%
+  summarise(average=mean(vote_average))
+
+ggplot(data = average_vote_per_year, aes(average_vote_per_year$release_year, average_vote_per_year$average)) +
+  geom_point() + ylab("Média de avaliação") + xlab("Ano")
+```
+
+#### **O mercado de gêneros**
+Como diferentes ferramentas de abordagem, os filmes agruparam-se em gêneros que
+se tornaram cada vez mais diversos com o início da "era do som" no começo do século
+passado. Eram muito comuns os dramas históricos e bíblicos, juntamente com a comédia musical.
+A diversidade de gêneros que compõe o acervo cinematográfico trazem consigo suas
+próprias técnicas para transmitir sua mensagem. Algumas mais populares que outras, claro.
+
+Analisando os gêneros, podemos extrair quais deles são melhores avaliados, como no gráfico abaixo.
+Onde podemos ver que documentários costumam ser filmes bem mais curados e menos produzidos
+em número, tendo um público alvo bem definido.
+```{r  error=F, message=F, warning=F, fig.cap="Média de avaliação por gênero", fig.align="center"}
+movies_genres <- read.csv("generated_data/movies_genres.csv")
+
+movies_and_genres <- merge(x=movies_root, y=movies_genres, by.x="id", by.y="movie_id")
+movies_and_genres <- select(movies_and_genres, id, original_title, genre,
+                            vote_average, release_year, title, vote_count)
+
+genre_vote <- movies_and_genres %>% 
+  filter(vote_count>100) %>% 
+  select(genre, vote_average) %>% 
+  group_by(genre) %>% 
+  summarise(average=mean(vote_average, na.rm = T)) %>%
+  arrange(desc(average))
+
+ggplot(genre_vote[1:10,], aes(genre, average)) + 
+  geom_bar(stat="identity") +
+  xlab("Gênero") + ylab("Média de avaliação")+
+  coord_cartesian(ylim=c(6,8))
+```
+
+Os gêneros mais explorados são um reflexo das primeiras décadas da história do cinema.
+Filmes de horror, como herança do expressionismo europeu pós-primeira guerra, dividiam
+salas com as já citadas comédias musicais, dramas bíblicos e filmes de gangsters
+famosos nos anos 30. A quantidade total de filmes por gênero é mostrada no gŕafico abaixo.
+```{r  error=F, message=F, warning=F, fig.cap="Quantidade de filmes por gênero", fig.align="center", fig.width=12, fig.height=6}
+genre_count <- movies_and_genres %>% 
+  filter(vote_count>100) %>%  
+  group_by(genre) %>% 
+  summarise(count=n()) %>%
+  arrange(desc(count))
+
+ggplot(genre_count[1:10,], aes(genre, count)) + 
+  geom_bar(stat="identity") +
+  xlab("Gênero") + ylab("Quantidade de filmes") 
+```
+
+Por fim, podemos listar os filmes mais bem avaliados de cada gênero. Em uma seleção
+bastante diversificada, com filmes lançados em várias décadas distintas. Trazendo desde
+a febre samurai dos anos 50, com o Chambara japonês, ao musical La La Land de 2016,
+estrelado pela atriz Emma Stone.
+
+```{r  error=F, message=F, warning=F, fig.width=15, fig.height=7, fig.cap="Filmes mais bem avaliados de cada gênero", fig.align="center"}
+index <- which(duplicated(movies_and_genres$original_title))
+movies_and_genres <- movies_and_genres[-index,]
+
+movies_genre_ratings <- movies_and_genres %>%
+  select(title, genre, vote_average, vote_count, release_year) %>%
+  group_by(genre) %>%
+  filter(vote_count > 800) %>%
+  mutate(max_score=max(vote_average)) %>%
+  ungroup() %>%
+  filter(vote_average==max_score)
+
+movies_genre_ratings <- filter(movies_genre_ratings,
+                            genre != "Family", genre != "Adventure",
+                            genre != "Mystery", genre != "Fantasy",
+                            title != "The Good, the Bad and the Ugly",
+                            genre != "History", genre != "Thriller")
+
+names_w_years <- paste(movies_genre_ratings$title, " (",
+                       movies_genre_ratings$release_year, ")", sep="")
+
+ggplot(movies_genre_ratings,
+       aes(x=as.character(genre),
+           y=as.numeric(vote_average),
+           fill=names_w_years)) + 
+  geom_bar(stat="identity", position = "dodge") +
+  xlab("Gênero") + ylab("Média de avaliação") + labs(fill="Filme") +
+  coord_cartesian(ylim=c(7,9))+
+  theme(text = element_text(size=15))
+```
+
+#### **Premiações e popularidade**
+Não há como falar sobre cinema sem citar as anuais temporadas de premiações, que
+correspondem ao último trimestre do ano, se estendendo até o mês de janeiro. Nesse
+período, ocorrem o Globo de Ouro, SAG, Grammy e, principalmente, o Oscar.
+
+A Temporada faz com que filmes de maior potencial sejam lançados próximos do último
+trimestre, geralmente nos meses de setembro e outubro. Isso é mostrado no gráfico abaixo,
+o mês de setembro possui uma maior quantidade de filmes com avaliações acima de 6,
+seguido de perto por dezembro. Os filmes lançados em dezembro geralmente são os últimos
+a entrarem nas listas das premiações, tendo sido exibido em festivais de cinema
+internacionais anteriormente, como, por exemplo, Marriage Story — comédia dramática
+da Netflix — e 1917 — filme de guerra do diretor Sam Mendes —, que tiveram forte
+presença na Temporada 2019-2020.
+
+```{r  error=F, message=F, warning=F, fig.align="center"}
+best_movies_per_month <- movies_root %>%
+  filter(vote_average>6, vote_count>100) %>%
+  select(title, vote_average, release_month) %>%
+  group_by(release_month) %>%
+  summarise(count=n())
+
+best_movies_per_month <- best_movies_per_month[-13,]
+best_movies_per_month$release_month <- as.Date(
+  paste0("2020-", best_movies_per_month$release_month, "-1"))
+
+ggplot(best_movies_per_month) + 
+  geom_bar(mapping = aes(x = release_month, y = count), stat="identity") +
+  scale_x_date(labels=date_format("%b"), breaks="1 month") +
+  xlab("Mês") +
+  ylab("Quantidade de avaliações acima de 6") +
+  coord_cartesian(ylim=c(50,600))
+```
+
+Embora sejam meses com maior número de lançamentos bem avaliados, estes meses
+não correspondem aos de maior bilheteria. Estes, por sua vez, costumam corresponder
+às férias de verão americanas, período que começa do final de maio e perdura
+até o início de agosto. O salto de arrecadação também acontece durante as férias
+de inverno, englobando o período de festas de fim de ano, como mostrado no gráfico.
+
+```{r  error=F, message=F, warning=F, fig.align="center"}
+best_revenue_per_month <- movies_root %>%
+  filter(vote_average>0) %>%
+  select(title, revenue, release_month) %>%
+  group_by(release_month) %>%
+  summarise(revenue=sum(revenue))
+
+best_revenue_per_month <- best_revenue_per_month[-13,]
+best_revenue_per_month$release_month <- as.Date(
+  paste0("2020-", best_revenue_per_month$release_month, "-1"))
+
+best_revenue_per_month$revenue <- best_revenue_per_month$revenue/1000000000
+
+ggplot(best_revenue_per_month) + 
+  geom_bar(mapping = aes(x = release_month, y = revenue), stat="identity") +
+  scale_x_date(labels=date_format("%b"), breaks="1 month") +
+  xlab("Mês") +
+  ylab("Arrecadação (em bilhões)")
+```
+
+Esta divergência pode levantar a dúvida se os filmes mais bem avaliados são para
+público de nicho. Nos últimos anos, o Oscar tem sido alvo de críticas por esnobar
+filmes populares, de grande arrecadação. Diante da febre dos filmes de ação de 
+bilheterias bilionárias dos últimos anos, a Academia tende sempre a ignorar ou a
+colocá-los para concorrer em modestas categorias técnicas.
+
+Neste ponto, houveram muitas críticas à falta de democracia com os filmes mais acessíveis.
+Em 2018, até anunciaram uma nova categoria para "filmes populares", mas voltaram atrás
+logo depois. Este fato incomoda, muito pelo fato da premiação estar perdendo cada vez
+mais audiência televisiva, tendo apresentado a pior da história no ano de 2020.
+
+Neste contexto, surgiu o questionamento: será que filmes com alta avaliação geralmente
+arrecadam menos? O gráfico abaixo diz que sim. Tirando a média das arrecadações de
+acordo com a avaliação, os filmes com média acima de 8 costumam ter menos bilheteria
+que filmes onde a avaliação pertence ao intervalo entre 6 e 7.5.
+
+```{r  error=F, message=F, warning=F, fig.width=10, fig.height=5, fig.align="center"}
+library(ggrepel)
+movies_rate_revenue <- movies_root %>%
+  select(title, release_year, vote_average, vote_count, revenue)
+
+rate_revenue <- movies_rate_revenue %>%
+  filter(vote_count>1000) %>%
+  group_by(vote_average) %>%
+  summarise(revenue=mean(revenue), title=first(title))
+
+rate_revenue$revenue <- as.integer(rate_revenue$revenue/1000000)
+
+aux_movies <- movies_root %>% select(title, vote_average, revenue, vote_count, release_year) %>%
+  filter(vote_count>1000)
+aux_movies$revenue <- as.integer(aux_movies$revenue/1000000)
+
+aux_movies$revenue_2 <- as.integer(aux_movies$revenue/10) * 10
+rate_revenue$revenue_2 <- as.integer(rate_revenue$revenue/10) * 10
+
+aux_movies <- merge(x=rate_revenue, y=aux_movies, by=c("vote_average", "revenue_2"))
+index = which(duplicated(aux_movies$vote_average))
+aux_movies <- aux_movies[-index,]
+
+names_w_years <- paste(aux_movies$title.y, " (", aux_movies$release_year, ")", sep="")
+
+ggplot(data=aux_movies, mapping = aes(x=vote_average, y=revenue.x)) + 
+  geom_point(color="blue", size=3) +
+  geom_line(data=rate_revenue, mapping=aes(x=vote_average, y=revenue)) +
+  #geom_text(aes(label=title.y), colour="blue") +
+  geom_label_repel(aes(label=names_w_years),
+                   box.padding=0.35,
+                   point.padding=0.5,
+                   segment.color="grey50") +
+  xlab("Nota de avaliação") +
+  ylab("Média de arrecadação (em milhões)")
+```
+
+Mas também não podemos afirmar que quanto menor avaliação, maior arrecadação.
+A linha do gráfico tem uma tendência à queda com notas abaixo de 6. Representando,
+assim, que não há nada mais democrático que um filme mediano.
+
+### A Era de Ouro
+#### **Introdução**
+Embora tenha surgido nos Estados Unidos de forma embrionária no fim do século 19,
+com a invenção do cinetoscópio por Thomas Edison, a produção cinematográfica
+desembarcou na Europa com os irmãos Lumière, que proporcionou a criação de filmes
+em outros pontos do globo. Porém, com a chegada do novo século, a explosão da
+Primeira Guerra Mundial em solo europeu possibilitou que Hollywood saísse na frente
+na produção audiovisual, como mostra o gráfico abaixo, onde a linha vermelha
+indica a quantidade de filmes produzidos nos EUA e, em azul, na Europa, no início
+do século passado.
+
+```{r  warning=F, error=F, message=F}
+grow_count <- movies_root %>%
+    select(release_year, revenue, production_countries) %>%
+    filter(release_year<1940, release_year > 1890, production_countries!="[]") %>%
+    group_by(release_year,production_countries) %>%
+    summarise(count=n(), revenue=sum(revenue))
+
+grow_holly <- grow_count %>% 
+    filter(production_countries=="United States of America") %>%
+    select(release_year, count, production_countries)
+grow_rest <- grow_count %>% 
+    filter(production_countries!="United States of America") %>%
+    group_by(release_year) %>%
+    summarise(count=sum(count), production_countries="Rest of the World")
+
+ggplot(data=grow_holly, mapping=aes(x=release_year,y=count)) +
+    geom_line(color='red') +
+    geom_line(data=grow_rest, mapping=aes(x=release_year, y=count), color='steelblue') +
+    xlab("Ano") + ylab("Quantidade de filmes lançados") +
+    scale_fill_manual(values=c("red", "steelblue"),
+                      breaks=c("United States of America", "Rest of the World"),
+                      labels=c("United States", "Rest of the World"))
+```
+
+Iniciava-se alí a Era de Ouro do Cinema, época de maior desenvolvimento de técnicas
+cinematógraficas e grandes investimentos em produções, que acabavam atraindo milhões
+de pessoas para as salas. Foi exatamente nesta época, contrastando com a Grande
+Guerra, que foram fundados os maiores estúdios da época: Warner Bros. (1923),
+MGM (1924), RKO (1928), Paramount Pictures (1912) e a Fox Film (1913), chamados
+*Big Five*. Outros grandes estúdios, *Little Three*, foram fundados nesta época,
+sendo a Columbia de 1914, a Universal em 1914  e a United Artists, 1919. Estes
+grandes estúdios até hoje figuram no top 10 dos que mais lançaram filmes até
+então, com a Warner Bros liderando o ranking.
+
+```{r  warning=F, error=F, message=F}
+production_companies <- read.csv("generated_data/production_metadata.csv", stringsAsFactors = F)
+movies_productions <- read.csv("generated_data/movies_productions.csv", stringsAsFactors = F)
+
+movies_productions <- merge(movies_productions, production_companies, by.x="production_id", by.y="id")
+movies_productions <- merge(movies_root, movies_productions, by.x="id",by.y="movie_id")
+
+count_production <- movies_productions %>%
+    group_by(name) %>%
+    summarise(count=n()) %>%
+    arrange(desc(count))
+
+DT::datatable(count_production[1:10,])
+```
+
+#### **Anos 20**
+```{r  warning=F, error=F, message=F, fig.cap="Nuvem de palavras mais frequentes em filmes de década de 20", fig.align="center"}
+keywords <- read.csv("generated_data/keywords.csv", stringsAsFactors = F)
+
+movies_word <- merge(x=movies_root, y=keywords, by.x="id", by.y="movie_id")
+movies_word <- select(movies_word, id, belongs_to_collection, title,
+                      release_year, release_month, revenue, vote_count,
+                      vote_average, keyword)
+
+decade_keyword <- movies_word %>%
+  select(release_year, keyword)
+decade_keyword$decade <- as.integer(decade_keyword$release_year/10)*10
+
+# década 20
+word20 <- paste(
+  filter(decade_keyword, decade==1920)$keyword,
+  collapse = " "
+)
+
+word20 <- Corpus(VectorSource(word20))
+matrix <- as.matrix(TermDocumentMatrix(word20)) 
+word20 <- sort(rowSums(matrix),decreasing=TRUE) 
+word20 <- data.frame(word = names(word20),freq=word20)
+
+wordcloud(words = word20$word, freq = word20$freq,
+          min.freq=1, max.words=50,
+          random.order=F, rot.per=0,
+          colors=brewer.pal(8, "Dark2"),
+          scale=c(5,1.5))
+```
+Com a chegada dos anos 20, o mercado audiovisual começa a crescer cada vez mais
+nos Estados Unidos, com o cinema mudo e suas comédias pastelões popularizadas
+pelo ator britânico Charles Chaplin. Entre as palavras mais citadas em filmes da
+época, encontra-se "silent" que descreve o estilo das produções, e bastantes
+referências à Guerra, como as palavras "war", "german" e "russian" presentes na
+nuvem de palavras acima.
+
+#### **Anos 30**
+```{r  message=F, warning=F, error=F, fig.cap="Nuvem de palavras mais frequentes em filmes de década de 30", fig.align="center"}
+word30 <- paste(
+  filter(decade_keyword, decade==1930)$keyword,
+  collapse = " "
+)
+
+word30 <- Corpus(VectorSource(word30))
+matrix <- as.matrix(TermDocumentMatrix(word30)) 
+word30 <- sort(rowSums(matrix),decreasing=TRUE) 
+word30 <- data.frame(word = names(word30),freq=word30)
+
+wordcloud(words = word30$word, freq = word30$freq,
+          min.freq=1, max.words=50,
+          random.order=F, rot.per=0,
+          colors=brewer.pal(8, "Dark2"),
+          scale=c(4,.9))
+```
+
+O cinema passa a ter uma importância ainda maior na década subsequente, pois, com
+a Crise de 1929, o entretenimento audiovisual era usado como uma fuga da realidade
+de um ambiente imerso em desolador desespero.
+
+Com a chegada do som, os musicais ganham as telonas e aparecem como palavra-chave
+mais recorrente na nossa nuvem de palavras da década. Comédias românticas também
+dão um tom mais leve às produções da época, que também contam com uma ascenção
+dos filmes de faroeste. É ainda nesta década que grandes filmes da história do
+cinema são lançados: Mágico de Oz e E o Vento Levou, ambos de 1939.
+
+#### **Anos 40**
+
+```{r  message=F, warning=F, error=F, fig.cap="Nuvem de palavras mais frequentes em filmes de década de 40", fig.align="center"}
+word40 <- paste(
+  filter(decade_keyword, decade==1940)$keyword,
+  collapse = " "
+)
+
+word40 <- Corpus(VectorSource(word40))
+matrix <- as.matrix(TermDocumentMatrix(word40)) 
+word40 <- sort(rowSums(matrix),decreasing=TRUE) 
+word40 <- data.frame(word = names(word40),freq=word40)
+
+wordcloud(words = word40$word, freq = word40$freq,
+          min.freq=1, max.words=50,
+          random.order=F, rot.per=0,
+          colors=brewer.pal(8, "Dark2"),
+          scale=c(4,0.9))
+```
+
+Os anos 40 chegam e trazem consigo a Segunda Guerra Mundial, que é refletida nas
+telonas com grandes produções como Cidadão Kane (1941). Outra grande febre dos anos
+40 são os filmes *noir*, estética alemã que ganha popularidade nos EUA nesta
+época, conhecido por filmes de alto-contraste, combinando ambientação urbana e
+suspense criminal.Por esses motivos, a nuvem de palavras dessa década está repleta
+de termos relacionadas à violência.
+
+#### **Anos 50 e 60**
+
+```{r  message=F, warning=F, error=F, fig.cap="Nuvem de palavras mais frequentes em filmes de década de 50 e 60", fig.align="center"}
+layout(matrix(c(1, 2), nr=1, byrow=T))
+# década 50
+word50 <- paste(
+  filter(decade_keyword, decade==1950)$keyword,
+  collapse = " "
+)
+
+word50 <- Corpus(VectorSource(word50))
+matrix <- as.matrix(TermDocumentMatrix(word50)) 
+word50 <- sort(rowSums(matrix),decreasing=TRUE) 
+word50 <- data.frame(word = names(word50),freq=word50)
+
+wordcloud(words = word50$word, freq = word50$freq,
+          min.freq=1, max.words=50,
+          random.order=F, rot.per=0,
+          colors=brewer.pal(8, "Dark2"),
+          scale=c(3,0.4))
+
+# década 60
+word60 <- paste(
+  filter(decade_keyword, decade==1960)$keyword,
+  collapse = " "
+)
+
+word60 <- Corpus(VectorSource(word60))
+matrix <- as.matrix(TermDocumentMatrix(word60)) 
+word60 <- sort(rowSums(matrix),decreasing=TRUE) 
+word60 <- data.frame(word = names(word60),freq=word60)
+
+wordcloud(words = word60$word, freq = word60$freq,
+          min.freq=1, max.words=50,
+          random.order=F, rot.per=0,
+          colors=brewer.pal(8, "Dark2"),
+          scale=c(3,0.4))
+```
+
+No declínio da Era de Ouro de Hollywood, o mundo do cinema já não estava mais tão
+preso em território norte-americano. O resto do mundo começava a se recuperar das
+guerras e dava seus pequenos passos em direção à retomada. Nesta época, se popularizou
+o cinema japonês, focado em ação com samurais.
+
+Nesta época, a televisão começou a se popularizar, reduzindo o lucros e levando
+produtoras a encerrar contratos. Por conta disso, começou a se popularizar os
+filmes "B", de menor orçamento e utilizando de narrativas com sexo e romances
+novelescos.
+
+É comum ver nas nuvens de palavras, termos que remetem à ficção científica, como
+"space", "alien", "scientist" e "monster". Este gênero foi impulsionado pela
+corrida espacial durante a Guerra Fria no começo dos anos 50, com tramas geralmente
+relacionadas ao "perigo comunista".
+
+### Mercado de franquias {.tabset}
+#### Mercado
+A derrocada da Era de Ouro de Hollywood coincide com uma ascenção de franquias de
+filmes com o intuito de reaproveitar sucessos de bilheteria para levar cada vez
+mais pessoas ao cinema. O fenômeno aumentou nos anos 70, quando *The Godfather:
+Part II* se torna a primeira sequência a ganhar o prêmio de melhor filme no Oscar.
+
+O mercado das franquias cresce cada vez mais a cada ano, sendo, na maioria das
+vezes, as maiores bilheterias do ano. Se observarmos as 10 maiores arrecadações
+do ano de 2019, 7 filmes são sequências diretas de outros filmes. Abrangendo esta
+análise para os últimos 100 anos da história do cinema, filtramos as 50 maiores
+arrecadações a cada ano e contamos quantas delas são franquias, o resultado está
+no gráfico abaixo.
+
+```{r  warning=F, error=F, message=F, fig.cap="Quantidade de franquias nas 50 maiores arrecadações por ano", fig.align="center"}
+franchise_revenue <- movies_root[order(movies_root$revenue, decreasing=T), ]
+franchise_revenue <- by(franchise_revenue, franchise_revenue["release_year"], head, n=50)
+franchise_revenue <- Reduce(rbind, franchise_revenue)
+
+franchise_revenue <- franchise_revenue %>%
+    filter(!is.na(belongs_to_collection), release_year<2017) %>%
+    group_by(release_year) %>%
+    summarise(count=n())
+
+ggplot(data=franchise_revenue, aes(x=release_year,y=count)) +
+  geom_line() + xlab("Ano") + ylab("Quantidade de franquias")
+```
+
+Podemos ver que os anos 2000 representam uma nova ascenção nas franquias que haviam
+estado em leve queda no fim dos anos 90. Impulsionado por *Harry Potter* e *Lord of
+The Rings*, o mercado das coleções cinematográficas volta a crescer no novo século,
+tendo outra queda na metade da primeira década, porém, se recuperando com a nova
+onda de filmes de herói e sagas infanto-juvenis, como Twilight e The Hunger Games.
+
+#### Maiores arrecadações
+No gráfico abaixo com as mais lucrativas franquias de todos os tempos, tem-se grande
+parte delas recentes. E mesmo as que não são deste século, permanecem sendo lançadas
+até hoje (o ano descrito no gráfico se refere ao ano de lançamento do primeiro filme).
+
+```{r  warning=F, error=F, message=F, fig.cap="Franquias mais lucrativas", fig.align="center"}
+cond = is.na(movies_root$belongs_to_collection)
+only_collections = movies_root[!cond,]
+
+collections_revenue <- only_collections %>%
+  select(belongs_to_collection, revenue, release_year) %>%
+  group_by(belongs_to_collection) %>%
+  summarise(total_revenue=sum(revenue), year=min(release_year)) %>%
+  arrange(desc(total_revenue))
+
+collections_revenue$belongs_to_collection <- paste(collections_revenue$belongs_to_collection,
+                                                  " (", collections_revenue$year, ")", sep="")
+collections_revenue$total_revenue <- collections_revenue$total_revenue/1000000000
+
+ggplot(collections_revenue[1:10,], aes(total_revenue, belongs_to_collection)) + 
+  geom_bar(stat="identity") +
+  ylab("Coleção") + xlab("Arrecadação (em bilhões)")
+```
+
+Comparar arrecadação de franquias de diferentes épocas pode não corresponder com
+fidelidade a realidade do mercado pois os valores não estão reajustados com a
+inflação. Portanto, podemos ver abaixo as coleções de filmes que mais arrecadaram
+por década, podendo observar que o início da fama deste formato coincide com o fim
+da Era de Ouro, com as produtoras arriscando novas estratégias para manter o
+público nas salas de cinema. Também é importante ressaltar que a arrecadação da
+década de 2010 corresponde aos filmes lançados até o ano de 2016.
+
+```{r  warning=F, error=F, message=F, fig.cap="Franquias mais lucrativas por década", fig.align="center", fig.width=13, fig.height=8}
+cond = is.na(movies_root$belongs_to_collection)
+only_collections = movies_root[!cond,]
+
+collections_revenue <- only_collections %>%
+  select(belongs_to_collection, revenue, release_year) %>%
+  group_by(belongs_to_collection) %>%
+  summarise(total_revenue=sum(revenue), year=min(release_year)) %>%
+  arrange(desc(total_revenue)) %>%
+  filter(year>1950)
+collections_revenue$belongs_to_collection <- paste(collections_revenue$belongs_to_collection,
+                                                   " (", collections_revenue$year, ")", sep="")
+collections_revenue$total_revenue <- collections_revenue$total_revenue/1000000000
+collections_revenue$decade <- as.integer(collections_revenue$year/10) * 10
+
+collections_revenue_decade <- collections_revenue[order(collections_revenue$total_revenue, decreasing=T), ]
+collections_revenue_decade <- by(collections_revenue_decade, collections_revenue_decade["decade"], head, n=3)
+collections_revenue_decade <- Reduce(rbind, collections_revenue_decade)
+
+ggplot(collections_revenue_decade, aes(x=decade,y=total_revenue,fill=belongs_to_collection)) + 
+  geom_bar(stat="identity", position = "dodge") + guides(fill=FALSE) +
+  xlab("Ano") + ylab("Arrecadação (em bilhões)") + labs(fill="") +
+  geom_label_repel(aes(label=belongs_to_collection),
+                   segment.color="grey50")
+```
+
+#### Mais bem avaliados
+
+A força das franquias cinematográficas do século 21 também pode ser observada
+listando as 10 mais bem avaliadas franquias da história do cinema. No topo, a
+estimada trilogia *The Lord of the Rings*, lançada em 2001, baseada na obra de
+J. R. R. Tolkien, é a mais bem-sucedida franquia cinematográfica de todos os tempos.
+Além de faturar pouco mais de 2.9 bilhões de dólares no mundo todo, a trilogia
+é recorde de indicações e conquistas do Oscar no formato, sendo indicada 30 vezes
+e vencendo 17 delas. Apenas *Return of the King*, terceiro filme da franquia
+recebeu 11 indicações, se igualando a *Titanic* e *Ben-Hur* como recordistas
+no segmento.
+
+```{r  warning=F, error=F, message=F, fig.cap="Franquias mais bem avaliadas", fig.align="center"}
+cond = is.na(movies_root$belongs_to_collection)
+only_collections = movies_root[!cond,]
+
+collections_rating <- only_collections %>%
+  select(belongs_to_collection, release_year, vote_average, vote_count) %>%
+  group_by(belongs_to_collection) %>%
+  summarise(average_rating=mean(vote_average), 
+            year=min(release_year),
+            average_count=mean(vote_count),
+            count=n()) %>%
+  arrange(desc(average_rating)) %>%
+  filter(count>1, average_count>500, year>1959)
+
+collections_rating$belongs_to_collection <- paste(collections_rating$belongs_to_collection,
+                                                   " (", collections_rating$year, ")", sep="")
+
+ggplot(collections_rating[1:10,], aes(average_rating, belongs_to_collection, fill=belongs_to_collection)) + 
+  geom_bar(stat="identity") + scale_fill_discrete(guide=FALSE) +
+  xlab("Avaliação média") + ylab("Franquia") +
+  coord_cartesian(xlim=c(7,8.5))
+```
+
+A importância dos filmes de héroi no mercado de franquias é notável. O século 21
+apresenta, em suas duas primeiras décadas, franquias como *The Dark Night* e
+*Guardians of the Galaxy*, em seus top 3 de mais bem avaliados. O trilogia do
+homem-morcego dirigida por Christopher Nolan foi o primeiro grande investimento
+da DC Comics no mercado audiovisual neste século, conseguindo conquistar um Oscar
+de "Melhor Ator Coadjuvante" para Heath Ledger, que viveu o Coringa no segundo filme.
+
+No gráfico abaixo, é importante salientar que, assim como nas arrecadações, a
+coleção é agrupada de acordo com o ano do seu primeiro filme.
+
+```{r  warning=F, error=F, message=F, fig.cap="Franquias mais bem avaliadas por década", fig.align="center", fig.width=13, fig.height=8}
+cond = is.na(movies_root$belongs_to_collection)
+only_collections = movies_root[!cond,]
+
+collections_rating <- only_collections %>%
+  select(belongs_to_collection, release_year, vote_average, vote_count) %>%
+  group_by(belongs_to_collection) %>%
+  summarise(average_rating=mean(vote_average), 
+            year=min(release_year),
+            average_count=mean(vote_count),
+            count=n()) %>%
+  arrange(desc(average_rating)) %>%
+  filter(count>1, average_count>500, year>1959)
+
+collections_rating$belongs_to_collection <- paste(collections_rating$belongs_to_collection,
+                                                  " (", collections_rating$year, ")", sep="")
+collections_rating$decade <- as.integer(collections_rating$year/10) * 10
+
+better_rating_decade <- collections_rating[order(collections_rating$average_rating, decreasing=T), ]
+better_rating_decade <- by(better_rating_decade, better_rating_decade["decade"], head, n=3)
+better_rating_decade <- Reduce(rbind, better_rating_decade)
+
+ggplot(better_rating_decade,
+       aes(x=as.character(decade),
+           y=as.numeric(average_rating),
+           fill=belongs_to_collection)) + 
+  geom_bar(stat="identity", position = "dodge") +
+  xlab("Década") + ylab("Avaliação média") + labs(fill="Collection") +
+  coord_cartesian(ylim=c(6,8.5)) + 
+  geom_label_repel(aes(label=belongs_to_collection),
+                   segment.color="grey50") +
+  scale_fill_discrete(guide=FALSE)
+```
+
+
+### O Cinema fora de Hollywood {.tabset}
+
+#### Introdução
+O recente acontecimento inédito na história do Oscar não chegou a ser uma surpresa
+para quem acompanha o cinema de fora do solo estadunidense. A vitória de *Parasite*
+(2019) na categoria "Melhor Filme" da premiação é, para muitos, um troféu de
+justiça pelos tantos anos que filmes fantásticos foram esnobados pela Academia.
+
+O crescimento do cinema estrangeiro é aparente principalmente no final do século
+passado. Embora tenha tido uma crescente no pós-guerra, como vemos no gráfico abaixo,
+quando os países se recuperavam dos estragos, foi nos anos 90 que a curva realmente
+ascendeu. Produções memoráveis como *The Life is Beatiful* (1997) e *Central do Brasil*
+(1998) são lançadas, fazendo grande disputa no Oscar de 1999 em "Melhor Filme
+Estrangeiro", por muitos considerados a edição que o Brasil mais chegou perto de
+ganhar uma estatueta.
+
+```{r  warning=F, error=F, message=F, fig.cap="Quantidade de filmes estrangeiros por ano", fig.align="center"}
+international_movies <- movies_root %>%
+  filter(original_language != "en")
+
+international_count_year <- international_movies %>%
+    filter(release_year<2017) %>%
+    group_by(release_year) %>%
+    summarise(count=n())
+
+ggplot(international_count_year, aes(release_year, count)) +
+    geom_line() + xlab("Ano") + ylab("Quantidade de filmes")
+```
+
+#### Maiores arrecadações
+
+Como podemos ver no gŕafico abaixo, os filmes de língua japonesa têm constante
+presença no top 3 anual de arrecadação. Na terra dos animes, são eles que alavancam
+a bilheteria do mercado no país, com o maior sucesso financeiro da história do
+cinema no país sendo bem recente, *Your Name*, de 2016, faturando 357 milhões de
+dólares.
+
+A França alcança seu pico em 2011, com a estreia de *The Intouchables*, comédia
+dramática que se tornou o filme mais rentável da história do cinema francês e
+arrecadou cerca de 420 milhões de dólares. Já o pico do cinema chinês em 2015
+se deve muito à animação *Monster Hunt* e à fantasia *Mojin: The Lost Legend*,
+ambos sucessos de bilheteria deixaram o mercado audiovisual chinês em alta
+naquele ano.
+
+```{r  warning=F, error=F, message=F, fig.cap="Línguas estrangeiras com maiores arrecadações nos últimos anos", fig.align="center", fig.width=10, fig.height=5}
+international_movies[international_movies$original_language == "ta",]$original_language <- "hi"
+international_movies[international_movies$original_language == "cn",]$original_language <- "zh"
+
+international_revenue <- international_movies %>%
+  filter(release_year>2006, release_year<2017) %>%
+  group_by(original_language, release_year) %>%
+  summarise(revenue=sum(revenue)) %>%
+  arrange(desc(revenue))
+
+international_revenue_year <- international_revenue[order(international_revenue$revenue, decreasing=T), ]
+international_revenue_year <- by(international_revenue_year, international_revenue_year["release_year"], head, n=3)
+international_revenue_year <- Reduce(rbind, international_revenue_year)
+
+international_revenue_year$revenue <- international_revenue_year$revenue/1000000
+
+ggplot(international_revenue_year,
+       aes(x=release_year,
+           y=revenue,
+           fill=original_language)) + 
+  geom_bar(stat="identity", position = "dodge") +
+  xlab("Ano") + ylab("Arrecadação (em milhões)") +
+  geom_label_repel(aes(label=original_language),
+                   segment.color="grey50") +
+  scale_fill_discrete(name = "Línguas", labels = c("zh: Chinês", "de: Alemão",
+                                                   "fr: Francês", "hi: Hindi",
+                                                   "ja: Japonês", "ko: Coreano",
+                                                   "ru: Russo", "sv: Sueco",
+                                                   "tr: Turco"))
+```
+
+```{r  warning=F, error=F, message=F, fig.cap="Filmes estrangeiros com maiores arrecadações", fig.align="center"}
+international_revenues <- international_movies %>%
+  select(title, release_year, revenue) %>%
+  arrange(desc(revenue))
+
+DT::datatable(international_revenues)
+```
+
+#### Mais bem avaliados
+
+O cinema brasileiro da última década tem presença forte no top 3 de filmes
+estrangeiros mais bem avaliados ano a ano. Os dramas *Hoje Eu Quero Voltar Sozinho*
+(2014) e *Entre Abelhas* (2015) são os principais responsábeis por colocar o cinema
+nacional no top 3 dos seus respectivos anos.
+
+Mas a principal língua que vemos no gráfico abaixo é a coreana. O cinema da Coréia
+do Sul está em alta e não é de hoje, os incentivos públicos no audiovisual local
+é impressionantemente evidente não apenas no grande triunfo que conseguiu *Parasite*
+no último ano, mas em todo o século corrente. Os dramas *Mother* (2009) e
+*I Saw The Devil* (2010) e o terror *Train to Busan* (2016) são grandes exemplos
+da qualidade do cinema coreano.
+
+```{r  warning=F, error=F, message=F, fig.cap="Línguas estrangeiras mais bem avaliadas", fig.align="center", fig.width=10, fig.height=5}
+international_rating_avg <- international_movies %>%
+  filter(release_year>2006, release_year<2017, vote_count>20) %>%
+  group_by(original_language, release_year) %>%
+  summarise(rating=mean(vote_average), count=n()) %>%
+  filter(count>5) %>%
+  arrange(desc(rating))
+
+
+international_rating_year <- international_rating_avg[order(international_rating_avg$rating, decreasing=T), ]
+international_rating_year <- by(international_rating_year, international_rating_year["release_year"], head, n=3)
+international_rating_year <- Reduce(rbind, international_rating_year)
+
+ggplot(international_rating_year,
+       aes(x=release_year,
+           y=rating,
+           fill=original_language)) + 
+  geom_bar(stat="identity", position = "dodge") +
+  xlab("Ano") + ylab("Avaliação média") +
+  geom_label_repel(aes(label=original_language),
+                   segment.color="grey50") +
+  coord_cartesian(ylim=c(6,7.5)) +
+  scale_fill_discrete(name = "Línguas", labels = c("de: Alemão",  "hi: Hindi",
+                                                   "ja: Japonês", "ko: Coreano",
+                                                   "pt: Português", "zh: Chinês"))
+```
+
+```{r  warning=F, error=F, message=F, fig.cap="Filmes estrangeiros mais bem avaliados", fig.align="center"}
+international_rating <- international_movies %>%
+  filter(vote_count>20) %>%
+  select(title, release_year, vote_average) %>%
+  arrange(desc(vote_average))
+
+DT::datatable(international_rating)
+```
+
+
+## Conclusão
+Com a análise realizada em cima dos dados do dataset, podemos observar alguns
+aspectos não tão claros no mercado cinematográfico. O crescimento de Hollywood
+em relação a outros mercados, a relação de popularidade e avaliação e a tendência
+temática em cada ano da Era de Ouro foram alguns desses pontos.
+
+Com os dados analisados e as informações descobertas, pôde-se avaliar quais os
+meses são lançados os filmes mais bem avaliados, os mercados estrangeiros mais
+populares e a relação da popularidade do filme com sua avaliação. Esses dados
+podem ser úteis para estúdios escolherem produções estrangeiras mais promissoras
+para investir e como e quando lançar um filme.
+
+A limitação de tempo impediu que mais análises pudessem ser realizadas, poderíamos
+tratar dos temas mais abordados em cada país e até ano a ano, utilizando as palavras
+chaves de cada filme. Realizar o tratamento nas sinopses dos filmes para extrair
+palavras mais frequentes e tentar entender quais assuntos o mercado mais busca abordar
+ao longo dos anos. Porém, esse tipo de extração e análise deverá ficar para outra
+oportunidade.
+
+Por fim, o mercado de cinema é muito vasto, muita coisa pôde ser explorada e
+muitas ainda poderiam ser. O dataset usado tem suas limitações, como a falta de
+informações em algumas linhas, mas no geral, é bastante completo, trazendo
+dados que puderam ser utilizados para extrair gráficos e tabelas de diferentes
+formatos.

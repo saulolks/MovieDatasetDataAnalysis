@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/642382/c01130cc91d4470f93b26be37222417a
+bundleId: https://api.rpubs.com/api/v1/document/642382/c01130cc91d4470f93b26be37222417a
+url: http://rpubs.com/sauloferreira/642382
+when: 1596238201.01754
